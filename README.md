@@ -1,2 +1,7 @@
 # ZipInt
-Compressed sériation methode for any numeric type.
+
+### Header based library.
+
+Compressed seriation method for any numeric type.
+
+/!\ _Still in progress_
