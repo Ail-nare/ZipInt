@@ -1,6 +1,8 @@
 #ifndef ZIPINT_LIBRARY_HPP
 #define ZIPINT_LIBRARY_HPP
 
+constexpr static bool debug = false;
+
 #define self (*this)
 
 #include <iostream> // Todo remove this include
@@ -101,10 +103,6 @@ class ZipHelper {
 
     class detail {
 
-        template <typename, typename T>
-        using check = T;
-
-
         template <typename T>
         static auto find_size(const T &container, int) noexcept
             -> decltype(std::size(container))
@@ -187,15 +185,13 @@ class ZipHelper {
     };
 
     template<typename _tp>
-    static void _endianlessify(const _tp &data, ZipHelper::bits<sizeof(_tp) * 8> &out)
+    static void endianlessify(const _tp &data, ZipHelper::bits<sizeof(_tp) * 8> &out)
     {
-        if (LittleBigEndian::endianness == LittleBigEndian::BIG) {
-            const char *it = reinterpret_cast<const char *>(&data);
+        const char *it = reinterpret_cast<const char *>(&data);
 
+        if (LittleBigEndian::endianness == LittleBigEndian::BIG) {
             std::copy(it, it + sizeof(_tp), reinterpret_cast<char *>(&out));
         } else {
-            const char *it = reinterpret_cast<const char *>(&data);
-
             std::reverse_copy(it, it + sizeof(_tp), reinterpret_cast<char *>(&out));
         }
     }
@@ -273,7 +269,7 @@ public:
         const uint32_t fullyUsedByte = nbOfUsedBits / 8;
         const uint16_t freeBits = 8 - (nbOfUsedBits % 8);
 
-        self.size = 1 + fullyUsedByte + (fullyUsedByte / 8);
+        self.size = 1 + fullyUsedByte + ((fullyUsedByte + _signed) / 8);
         self.size += ((self.size + _signed) > freeBits);
 
         if constexpr (ZipData::hasLimit) {
@@ -314,7 +310,7 @@ class ZipInt {
     {
         ZipHelper::bits<sizeof(_tp) * 8> enData;
 
-        ZipHelper::_endianlessify(data, enData);
+        ZipHelper::endianlessify(data, enData);
 
         if constexpr (_signed)
             self.isSigned = enData.get(0);
@@ -333,6 +329,7 @@ class ZipInt {
         // Create a zipData, witch will compute the size of the data
         ZipData zipData(nbOfUsedBits);
 
+        // This is a special cases where
         if constexpr (_escape) {
             if (zipData.size == 0) {
                 // Todo better throw
@@ -340,63 +337,37 @@ class ZipInt {
             }
         }
 
-        // Create a buffer to store the new data
-        uint8_t buffer[zipData.size];
-
-        const uint8_t *itBegin = enData.cbyte_begin();
-        uint8_t *itBuffer = buffer;
-
-        if (zipData.size > sizeof(_tp)) {
-            // If this is true it means, that more data will be used to serialize the data than the data actually weight
-
-            itBuffer += zipData.size - sizeof(_tp);
-
-            // File the start of the buffer than may never be initialized other wise
-            if constexpr (_header_type == 0) {
-                // Optimization for this case "_header_type == 0"
-                itBuffer[-1] = 0b00000000;
-            } else {
-                std::fill(buffer, itBuffer, 0b00000000);
-            }
-
-        } else {
-            SizeType diff = zipData.size - (nbOfUsedBits / 8) - 1;
-
-            itBegin += sizeof(_tp) - diff - 1;
-        }
-
-        { // Debug
-            std::cout << data << std::endl;
-
-            for (uint32_t i = 0; i < sizeof(_tp) * 8; ++i) {
-                if (i && !(i % 8))
-                    std::cout << ':';
-                std::cout << enData.get(i);
-            }
-            std::cout << std::endl;
-        }
-
+        // Remove the signed bit of the data
         if constexpr (_signed)
             if (self.isSigned)
                 enData.set(0, false);
 
+        // Create a buffer to store the new data
+        uint8_t buffer[zipData.size];
+        uint32_t sizeToCopy;
+
+
+        if (zipData.size > sizeof(_tp)) {
+            // Pre fill the head to avoid unitialised value problem
+            buffer[zipData.size - sizeof(_tp) - 1] = 0b00000000;
+
+            sizeToCopy = sizeof(_tp);
+        } else {
+            sizeToCopy = zipData.size;
+        }
+
+        // Create reverse iterator in order to copy the data from the right
+        std::reverse_iterator<const uint8_t *> rItData(static_cast<const uint8_t *>(enData.cbyte_end()));
+        std::reverse_iterator<uint8_t *> rItBuffer(static_cast<uint8_t *>(buffer) + zipData.size);
+
         // Copy the data
-        std::copy(itBegin, enData.cbyte_end(), itBuffer);
+        std::copy_n(rItData, sizeToCopy, rItBuffer);
 
         // Add the header
         zipData.setHeader(buffer, self.isSigned);
 
-        { // DEBUG
-            ZipHelper::bits<sizeof(_tp) * 8 + 100> &newData = *reinterpret_cast<ZipHelper::bits<
-                    sizeof(_tp) * 8 + 100> *>(&buffer[0]);
-
-            for (uint32_t i = 0; i < zipData.size * 8; ++i) {
-                if (i && !(i % 8))
-                    std::cout << ':';
-                std::cout << newData.get(i);
-            }
-            std::cout << std::endl;
-        }
+        // Write the binary into the stream
+        stream.write(buffer, zipData.size);
     }
 
 
