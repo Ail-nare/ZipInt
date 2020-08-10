@@ -268,9 +268,10 @@ public:
     {
         const uint32_t fullyUsedByte = nbOfUsedBits / 8;
         const uint16_t freeBits = 8 - (nbOfUsedBits % 8);
+        const uint32_t overUse = (fullyUsedByte + _signed) / 8;
 
-        self.size = 1 + fullyUsedByte + ((fullyUsedByte + _signed) / 8);
-        self.size += ((self.size + _signed) > freeBits);
+        self.size = 1 + fullyUsedByte + overUse;
+        self.size += ((self.size + _signed) > (freeBits + overUse * 8));
 
         if constexpr (ZipData::hasLimit) {
             self.size = (self.size >= ZipData::limit) ? 0 : self.size;
