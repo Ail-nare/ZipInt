@@ -48,13 +48,13 @@ public:
     constexpr Escape()=default;
 };
 
-template <bool _signed=false, std::uint16_t _compression_method=0u, bool _dynamic_zip_int_type=false, bool _escape=false>
+template <bool _signed=false, uint16_t _compression_method=0u, bool _dynamic_zip_int_type=false, bool _escape=false>
 class ZipInt;
 
 class ZipHelper {
     using SizeTypes = std::tuple<uint32_t, uint64_t>;
 
-    template <std::uint16_t _compression_method>
+    template <uint16_t _compression_method>
     using SizeType = std::tuple_element_t<_compression_method, SizeTypes>;
 
 
@@ -164,7 +164,7 @@ class ZipHelper {
         }
     };
 
-    template <std::uint16_t _compression_method>
+    template <uint16_t _compression_method>
     class ZipDataDefault {
     protected:
         // Variable
@@ -174,7 +174,7 @@ class ZipHelper {
         ZipDataDefault()=default;
     };
 
-    template <bool _signed, std::uint16_t _compression_method, bool _dynamic_zip_int_type, bool _escape>
+    template <bool _signed, uint16_t _compression_method, bool _dynamic_zip_int_type, bool _escape>
     class ZipData {
         friend ZipInt<_signed, _compression_method, _dynamic_zip_int_type, _escape>;
     public:
@@ -193,7 +193,7 @@ class ZipHelper {
         }
     }
 
-    template <bool _signed, std::uint16_t _compression_method, bool _dynamic_zip_int_type, bool _escape>
+    template <bool _signed, uint16_t _compression_method, bool _dynamic_zip_int_type, bool _escape>
     friend class ZipInt;
 
 public:
@@ -207,7 +207,7 @@ template <bool _signed, bool _dynamic_zip_int_type, bool _escape>
 class ZipHelper::ZipData<_signed, 0u, _dynamic_zip_int_type, _escape> : public ZipDataDefault<0u> {
 
     // Attribute
-    static constexpr std::uint16_t _ht = 0u;
+    static constexpr uint16_t _ht = 0u;
 
     static constexpr bool hasLimit = _escape;
     static constexpr SizeType<_ht> limit = hasLimit ? 8 : std::numeric_limits<SizeType<_ht>>::max();
@@ -275,7 +275,7 @@ public:
     friend ZipInt<_signed, _ht, _dynamic_zip_int_type, _escape>;
 };
 
-template <bool _signed, std::uint16_t _compression_method, bool _dynamic_zip_int_type, bool _escape>
+template <bool _signed, uint16_t _compression_method, bool _dynamic_zip_int_type, bool _escape>
 class ZipInt {
     static_assert(_compression_method <= 0, "ZipInt _compression_method can't be higher that 0");
     // Warning for the future if more _compression_method were to be add, it can't be higher than 31!!
