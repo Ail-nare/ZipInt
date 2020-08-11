@@ -3,8 +3,6 @@
 
 constexpr static bool debug = false;
 
-#define self (*this)
-
 #include <iostream> // Todo remove this include
 
 #include <cstdint>
@@ -71,33 +69,33 @@ class ZipHelper {
     public:
         [[nodiscard]] bool get(size_t idx) const
         {
-            return (self.operator[](idx / 8) << idx % 8) & 0x80;
+            return (this->operator[](idx / 8) << idx % 8) & 0x80;
         }
 
         [[nodiscard]] uint8_t &getByte(size_t idx) const
         {
-            return self.at(idx);
+            return this->at(idx);
         }
 
         bits &set(size_t idx, bool value)
         {
-            uint8_t &byte = self.operator[](idx / 8);
+            uint8_t &byte = this->operator[](idx / 8);
             uint8_t newValue = 0x80u >> (idx % 8);
 
             byte ^= newValue;
             if (value)
                 byte |= newValue;
-            return self;
+            return *this;
         }
 
         [[nodiscard]] const uint8_t *cbyte_begin() const
         {
-            return self.begin();
+            return this->begin();
         }
 
         [[nodiscard]] const uint8_t *cbyte_end() const
         {
-            return self.begin() + _nb_bytes;
+            return this->begin() + _nb_bytes;
         }
     };
 
@@ -241,14 +239,14 @@ class ZipHelper::ZipData<_signed, _escape, _dynamic_zip_int_type, 0u> : public Z
 
     [[nodiscard]] SizeType<_ht> GetDataSize() const
     {
-        return self.size;
+        return this->size;
     }
 
     void setHeader(uint8_t *data, bool isSigned) const
     { // This function shouldn't be called if that data is escaped
         SizeType<_ht> idx;
 
-        for (idx = self.size; idx >= 8; idx -= 8, ++data)
+        for (idx = this->size; idx >= 8; idx -= 8, ++data)
             *data = 0b11111111;
 
         const auto &ref = ZipData::refHeader[idx];
@@ -259,6 +257,7 @@ class ZipHelper::ZipData<_signed, _escape, _dynamic_zip_int_type, 0u> : public Z
         } else {
             *data &= ref.removeKey;
             *data |= ref.addKey;
+            (void)isSigned;
         }
     }
 
@@ -268,13 +267,13 @@ public:
     {
         const uint32_t fullyUsedByte = nbOfUsedBits / 8;
         const uint16_t freeBits = 8 - (nbOfUsedBits % 8);
-        const uint32_t overUse = (fullyUsedByte + _signed) / 8;
+        const uint32_t overUse = (fullyUsedByte + (freeBits != 0)) / 8;
 
-        self.size = 1 + fullyUsedByte + overUse;
-        self.size += ((self.size + _signed) > (freeBits + overUse * 8));
+        this->size = 1 + fullyUsedByte + overUse;
+        this->size += ((this->size + _signed) > (freeBits + overUse * 8));
 
         if constexpr (ZipData::hasLimit) {
-            self.size = (self.size >= ZipData::limit) ? 0 : self.size;
+            this->size = (this->size >= ZipData::limit) ? 0 : this->size;
         }
     };
 
@@ -283,7 +282,7 @@ public:
 
 template<bool _signed, bool _escape, bool _dynamic_zip_int_type, std::uint16_t _header_type>
 class ZipInt {
-    static_assert(_header_type <= 1, "ZipInt _header_type can't be higher that 1");
+    static_assert(_header_type <= 0, "ZipInt _header_type can't be higher that 0");
     // Warning for the future if more _header_type were to be add, it can't be higher than 31!!
 
     using Zip = ZipInt<_signed, _escape, _dynamic_zip_int_type, _header_type>;
@@ -314,7 +313,7 @@ class ZipInt {
         ZipHelper::endianlessify(data, enData);
 
         if constexpr (_signed)
-            self.isSigned = enData.get(0);
+            this->isSigned = enData.get(0);
 
         if constexpr (_escape && std::is_same_v<Escape, _tp>) {
             // The data is an escape
@@ -324,7 +323,7 @@ class ZipInt {
 
         // Find the number of useless bits
         SizeType nbOfUsedBits = (sizeof(_tp) * 8);
-        for (uint32_t i = 0; enData.get(i) == self.isSigned && i < sizeof(_tp) * 8; ++i)
+        for (uint32_t i = 0; (enData.get(i) == this->isSigned) && (i < ((sizeof(_tp) * 8) - 1)); ++i)
             --nbOfUsedBits;
 
         // Create a zipData, witch will compute the size of the data
@@ -340,7 +339,7 @@ class ZipInt {
 
         // Remove the signed bit of the data
         if constexpr (_signed)
-            if (self.isSigned)
+            if (this->isSigned)
                 enData.set(0, false);
 
         // Create a buffer to store the new data
@@ -365,7 +364,7 @@ class ZipInt {
         std::copy_n(rItData, sizeToCopy, rItBuffer);
 
         // Add the header
-        zipData.setHeader(buffer, self.isSigned);
+        zipData.setHeader(buffer, this->isSigned);
 
         // Write the binary into the stream
         stream.write(buffer, zipData.size);
@@ -396,19 +395,19 @@ class ZipInt {
         // The data is a container
 
         if constexpr (_dynamic_zip_int_type) {
-            self.template _typeIt<_stream, true>(stream);
-            self._zip(stream, ZipHelper::detail::size(data));
+            this->template _typeIt<_stream, true>(stream);
+            this->_zip(stream, ZipHelper::detail::size(data));
         }
         for (const auto &obj : data)
-            self._zip(stream, obj);
+            this->_zip(stream, obj);
     }
 
     template<typename _stream, typename _tp>
     void _write(_stream &stream, const _tp &data)
     {
         if constexpr (_dynamic_zip_int_type)
-            self.template _typeIt<_stream, false>(stream);
-        self._zip(stream, data);
+            this->template _typeIt<_stream, false>(stream);
+        this->_zip(stream, data);
     }
 
 
@@ -421,7 +420,7 @@ public:
     auto write(_stream &stream, const _tp &data)
         -> std::enable_if_t<ZipHelper::detail::has_write_v<_stream>>
     {
-        self._write(stream, data);
+        this->_write(stream, data);
     }
 
     template<typename _tp>
@@ -432,7 +431,7 @@ public:
             void write(const void *data, ptrdiff_t n) { ::write(fd, data, n); }
         } fdWriteContainer = fd;
 
-        self.write(fdWriteContainer, data);
+        this->write(fdWriteContainer, data);
     }
 
     template<typename _tp>
@@ -443,7 +442,7 @@ public:
             void write(const void *data, ptrdiff_t n) { ::fwrite(data, 1, n, file); }
         } fileWriteContainer = file;
 
-        self.write(fileWriteContainer, data);
+        this->write(fileWriteContainer, data);
     }
 
 private:
@@ -454,7 +453,5 @@ public:
         return Zip::_singleton;
     }
 };
-
-#undef self
 
 #endif //ZIPINT_LIBRARY_HPP
