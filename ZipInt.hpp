@@ -152,10 +152,10 @@ class ZipHelper {
 
         template <typename T>
         struct is_iterable<T,
-                std::void_t<decltype (
-                begin(std::declval<T&>()) != end(std::declval<T&>()),
-                        ++std::declval<decltype(begin(std::declval<T&>()))&>(),
-                        *begin(std::declval<T&>()))
+                std::void_t<
+                    decltype(std::begin(std::declval<T&>()) != std::end(std::declval<T&>())),
+                    decltype(++std::declval<decltype(std::begin(std::declval<T&>()))&>()),
+                    decltype(*std::begin(std::declval<T&>()))
                 >
         > : std::true_type {};
 
@@ -389,20 +389,23 @@ class ZipInt {
     }
 
 
-    template<typename _stream, typename _tp, std::enable_if_t<ZipHelper::detail::is_iterable_v<_stream>, int> = 0>
+    template<typename _stream, typename _tp, std::enable_if_t<ZipHelper::detail::is_iterable_v<_tp>, int> =0>
     void _write(_stream &stream, const _tp &data)
     {
         // The data is a container
 
         if constexpr (_dynamic_zip_int_type) {
             this->template _typeIt<_stream, true>(stream);
-            this->_zip(stream, ZipHelper::detail::size(data));
         }
+
+        // Use the default compression type.
+        ZipInt<false, false, false, 0ul>::Get().write(stream, ZipHelper::detail::size(data));
+
         for (const auto &obj : data)
             this->_zip(stream, obj);
     }
 
-    template<typename _stream, typename _tp>
+    template<typename _stream, typename _tp, std::enable_if_t<!ZipHelper::detail::is_iterable_v<_tp>, int> =0>
     void _write(_stream &stream, const _tp &data)
     {
         if constexpr (_dynamic_zip_int_type)
@@ -416,9 +419,8 @@ public:
         : nbPower(0), head(), isSigned(false), dataSize(0)
     {}
 
-    template<typename _stream, typename _tp>
+    template<typename _stream, typename _tp, std::enable_if_t<ZipHelper::detail::has_write_v<_stream>, int> =0>
     auto write(_stream &stream, const _tp &data)
-        -> std::enable_if_t<ZipHelper::detail::has_write_v<_stream>>
     {
         this->_write(stream, data);
     }

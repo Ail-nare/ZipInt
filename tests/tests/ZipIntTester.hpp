@@ -8,6 +8,8 @@
 #include "ZipInt.hpp"
 #include <string>
 #include <vector>
+#include <sstream>
+#include <iomanip>
 
 class MyStream {
     std::vector<uint8_t> data;

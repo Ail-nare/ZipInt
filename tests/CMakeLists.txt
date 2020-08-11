@@ -26,6 +26,7 @@ include_directories(
 set(SOURCE_TEST
     tests/TestUnsignedDefault.cpp
     tests/TestSignedDefault.cpp
+    tests/TestContainer.cpp
 )
 
 add_executable(ZipInt_unit_test ${SOURCE_TEST})
