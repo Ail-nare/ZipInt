@@ -12,7 +12,7 @@
 #include <iomanip>
 
 class MyStream {
-    std::vector<uint8_t> data;
+    std::vector<uint8_t> _data;
 
     static std::string to_hex(uint8_t i)
     {
@@ -22,11 +22,11 @@ class MyStream {
     }
 
 public:
-    MyStream(): data() {};
+    MyStream()=default;
 
     [[nodiscard]] std::string str() const
     {
-        size_t size = this->data.size();
+        size_t size = this->_data.size();
         std::string result((size * 9) - 1, '0');
 
         for (size_t i = 0, j = 0; i < (size * 8); ++i) {
@@ -34,21 +34,18 @@ public:
                 result[i + j] = ':';
                 ++j;
             }
-            if (uint8_t(this->data[i / 8] << (i % 8u)) & 0x80u)
+            if (uint8_t(this->_data[i / 8] << (i % 8u)) & 0x80u)
                 result[i + j] = '1';
         }
         return result;
     }
-
-
-
 
     [[nodiscard]] std::string hex() const
     {
         std::stringstream stream;
         bool first = true;
 
-        for (const auto &nb : this->data) {
+        for (const auto &nb : this->_data) {
             if (!first)
                 stream << ':';
             else
@@ -60,13 +57,13 @@ public:
 
     void write(const void *data, int size)
     {
-        const uint8_t *udata = static_cast<const uint8_t *>(data);
+        const auto *udata = static_cast<const uint8_t *>(data);
 
-        this->data.insert(this->data.end(), udata, udata + size);
+        this->_data.insert(this->_data.end(), udata, udata + size);
     }
 };
 
-template<bool _signed=false, bool _escape=false, bool _dynamic_zip_int_type=false, std::uint16_t _header_type=0>
+template<bool _signed=false, std::uint16_t _header_type=0, bool _dynamic_zip_int_type=false, bool _escape=false>
 class ZipIntTester {
 
 public:
@@ -75,7 +72,7 @@ public:
     {
         MyStream stream;
 
-        ZipInt<_signed, _escape, _dynamic_zip_int_type, _header_type>::Get().write(stream, value);
+        ZipInt<_signed, _header_type, _dynamic_zip_int_type, _escape>::Get().write(stream, value);
 
         return stream.str();
     }
@@ -85,7 +82,7 @@ public:
     {
         MyStream stream;
 
-        ZipInt<_signed, _escape, _dynamic_zip_int_type, _header_type>::Get().write(stream, value);
+        ZipInt<_signed, _header_type, _dynamic_zip_int_type, _escape>::Get().write(stream, value);
 
         return stream.hex();
     }
@@ -108,26 +105,26 @@ template <typename type, size_t N>
 class EndianNumber {
     static_assert(N >= 1, "N can't be inferior to 1");
 
-    std::array<type, N> data;
+    std::array<type, N> _data;
 
-    template <size_t n, typename=typename std::enable_if<n == 0>::type>
+    template <size_t n, typename std::enable_if<n == 0, int>::type=0>
     constexpr void _set()
     {}
 
-    template <size_t n, typename ...Ts, typename=typename std::enable_if<same<type, Ts...>::value && (sizeof...(Ts) + 1 == n)>::type>
+    template <size_t n, typename ...Ts, typename std::enable_if<same<type, Ts...>::value && (sizeof...(Ts) + 1 == n), int>::type=0>
     constexpr void _set(type nb, Ts ...rest)
     {
         if (LittleBigEndian::endianness == LittleBigEndian::BIG) {
-            this->data[N - n] = nb;
+            this->_data[N - n] = nb;
         } else {
-            this->data[n - 1] = nb;
+            this->_data[n - 1] = nb;
         }
         this->_set<n - 1>(rest...);
     }
 
 public:
-    template <typename ...Ts, typename=typename std::enable_if<same<type, Ts...>::value && (sizeof...(Ts) + 1 == N)>::type>
-    constexpr EndianNumber(type nb, Ts ...rest)
+    template <typename ...Ts, typename std::enable_if<same<type, Ts...>::value && (sizeof...(Ts) + 1 == N), int>::type=0>
+    explicit constexpr EndianNumber(type nb, Ts ...rest)
     {
         this->_set<N>(nb, rest...);
     }
@@ -137,7 +134,7 @@ public:
         std::string result;
 
         for (size_t i = 0; i < N; ++i)
-            result += ':' + std::to_string(this->data[i]);
+            result += ':' + std::to_string(this->_data[i]);
 
         return result;
     }
