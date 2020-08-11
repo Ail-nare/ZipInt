@@ -65,7 +65,7 @@ class ZipHelper {
     public:
         [[nodiscard]] bool get(size_t idx) const
         {
-            return (this->operator[](idx / 8) << idx % 8) & 0x80;
+            return (this->cbyte_begin()[idx / 8] << idx % 8) & 0x80;
         }
 
         [[maybe_unused]] [[nodiscard]] uint8_t &getByte(size_t idx) const
@@ -92,6 +92,54 @@ class ZipHelper {
         [[maybe_unused]] [[nodiscard]] const uint8_t *cbyte_end() const
         {
             return this->begin() + _nb_bytes;
+        }
+    };
+
+    class bitsPtr {
+
+        uint8_t *ptr;
+        ptrdiff_t size;
+
+    public:
+
+        bitsPtr(uint8_t *ptr, ptrdiff_t size)
+            : ptr(ptr), size(size)
+        {}
+
+        [[nodiscard]] bool get(size_t idx) const
+        {
+            return (uint32_t(this->ptr[idx / 8]) << (idx % 8u)) & 0x80u;
+        }
+
+        [[maybe_unused]] [[nodiscard]] uint8_t &getByte(size_t idx) const
+        {
+            return this->ptr[idx];
+        }
+
+        bitsPtr &set(size_t idx, bool value)
+        {
+            uint8_t &byte = this->ptr[idx / 8];
+            uint8_t newValue = 0x80u >> (idx % 8);
+
+            byte ^= newValue;
+            if (value)
+                byte |= newValue;
+            return *this;
+        }
+
+        [[maybe_unused]] [[nodiscard]] uint8_t *byte_begin()
+        {
+            return this->ptr;
+        }
+
+        [[maybe_unused]] [[nodiscard]] const uint8_t *cbyte_begin() const
+        {
+            return this->ptr;
+        }
+
+        [[maybe_unused]] [[nodiscard]] const uint8_t *cbyte_end() const
+        {
+            return this->ptr + size;
         }
     };
 
@@ -193,6 +241,17 @@ class ZipHelper {
         }
     }
 
+    static void endianSwap(const void *data, ZipHelper::bitsPtr &out, ptrdiff_t size)
+    {
+        const char *it = static_cast<const char *>(data);
+
+        if (LittleBigEndian::endianness == LittleBigEndian::BIG) {
+            std::copy(it, it + size, reinterpret_cast<char *>(out.byte_begin()));
+        } else {
+            std::reverse_copy(it, it + size, reinterpret_cast<char *>(out.byte_begin()));
+        }
+    }
+
     template <bool _signed, uint16_t _compression_method, bool _dynamic_zip_int_type, bool _escape>
     friend class ZipInt;
 
@@ -248,7 +307,7 @@ class ZipHelper::ZipData<_signed, 0u, _dynamic_zip_int_type, _escape> : public Z
 
         if constexpr (_signed) {
             *data &= ref.signedRemoveKey;
-            *data |= isSigned ? ref.signedAddKey : ref.addKey;
+            *data |= (isSigned) ? ref.signedAddKey : *data |= ref.addKey;
         } else {
             *data &= ref.removeKey;
             *data |= ref.addKey;
@@ -315,7 +374,7 @@ class ZipInt {
         }
 
         // Find the number of useless bits
-        SizeType nbOfUsedBits = (sizeof(_tp) * 8);
+        SizeType nbOfUsedBits = sizeof(_tp) * 8;
         for (uint32_t i = 0; (enData.get(i) == this->isSigned) && (i < ((sizeof(_tp) * 8) - 1)); ++i)
             --nbOfUsedBits;
 
@@ -330,11 +389,13 @@ class ZipInt {
             }
         }
 
+        /*
         // Remove the signed bit of the data
         if constexpr (_signed) {
             if (this->isSigned)
                 enData.set(0, false);
         }
+        */
 
         // Create a buffer to store the new data
         uint8_t buffer[zipData.size];
@@ -343,9 +404,81 @@ class ZipInt {
 
         if (zipData.size > sizeof(_tp)) {
             // Pre fill the head to avoid unitialised value problem
-            buffer[zipData.size - sizeof(_tp) - 1] = 0b00000000;
+            if constexpr (_signed) {
+                buffer[zipData.size - sizeof(_tp) - 1] = this->isSigned ? 0b11111111 : 0b00000000;
+            } else {
+                buffer[zipData.size - sizeof(_tp) - 1] = 0b00000000;
+            }
 
             sizeToCopy = sizeof(_tp);
+        } else {
+            sizeToCopy = zipData.size;
+        }
+
+        // Create reverse iterator in order to copy the data from the right
+        std::reverse_iterator<const uint8_t *> rItData(static_cast<const uint8_t *>(enData.cbyte_end()));
+        std::reverse_iterator<uint8_t *> rItBuffer(static_cast<uint8_t *>(buffer) + zipData.size);
+
+        // Copy the data
+        std::copy_n(rItData, sizeToCopy, rItBuffer);
+
+        // Add the header
+        zipData.setHeader(buffer, this->isSigned);
+
+        // Write the binary into the stream
+        stream.write(buffer, zipData.size);
+    }
+
+    template <typename _stream>
+    void _zip(_stream &stream, const void *data, ptrdiff_t size)
+    {
+        uint8_t defaultBuffer[size];
+        ZipHelper::bitsPtr enData {defaultBuffer, size};
+
+        ZipHelper::endianSwap(data, enData, size);
+
+        if constexpr (_signed) {
+            this->isSigned = enData.get(0);
+        }
+
+        // Find the number of useless bits
+        SizeType nbOfUsedBits = size * 8;
+        for (uint32_t i = 0; (enData.get(i) == this->isSigned) && (i < ((size * 8) - 1)); ++i)
+            --nbOfUsedBits;
+
+        // Create a zipData, witch will compute the size of the data
+        ZipData zipData(nbOfUsedBits);
+
+        // This is a special cases where
+        if constexpr (_escape) {
+            if (zipData.size == 0) {
+                // Todo better throw
+                throw std::out_of_range("Too large number");
+            }
+        }
+
+        /*
+        // Remove the signed bit of the data
+        if constexpr (_signed) {
+            if (this->isSigned)
+                enData.set(0, false);
+        }
+        */
+
+        // Create a buffer to store the new data
+        uint8_t buffer[zipData.size];
+        uint32_t sizeToCopy;
+
+
+        if (zipData.size > size) {
+            // Pre fill the head to avoid uninitialised value problem
+            if constexpr (_signed) {
+                buffer[zipData.size - size - 1] = this->isSigned ? 0b11111111 : 0b00000000;
+            } else {
+                buffer[zipData.size - size - 1] = 0b00000000;
+            }
+
+            sizeToCopy = size;
         } else {
             sizeToCopy = zipData.size;
         }
@@ -408,6 +541,16 @@ class ZipInt {
         this->_zip(stream, data);
     }
 
+    template <typename _stream>
+    void _write(_stream &stream, const void *data, ptrdiff_t size)
+    {
+        if constexpr (_dynamic_zip_int_type) {
+            this->template _typeIt<_stream, false>(stream);
+        }
+
+        this->_zip(stream, data, size);
+    }
+
 
 public:
     ZipInt()
@@ -418,6 +561,12 @@ public:
     auto write(_stream &stream, const _tp &data)
     {
         this->_write(stream, data);
+    }
+
+    template <typename _stream, typename std::enable_if<ZipHelper::detail::has_write_v<_stream>, int>::type=0>
+    auto write(_stream &stream, const void *data, ptrdiff_t size)
+    {
+        this->_write(stream, data, size);
     }
 
     template <typename _tp>
@@ -431,6 +580,16 @@ public:
         this->write(fdWriteContainer, data);
     }
 
+    void write(int fd, const void *data, ptrdiff_t size)
+    {
+        struct {
+            int fd;
+            void write(const void *data, ptrdiff_t n) { ::write(fd, data, n); }
+        } fdWriteContainer { fd };
+
+        this->write(fdWriteContainer, data, size);
+    }
+
     template <typename _tp>
     void write(FILE *file, const _tp &data)
     {
@@ -440,6 +599,16 @@ public:
         } fileWriteContainer = { file };
 
         this->write(fileWriteContainer, data);
+    }
+
+    void write(FILE *file, const void *data, ptrdiff_t size)
+    {
+        struct {
+            FILE *file;
+            void write(const void *data, ptrdiff_t n) { ::fwrite(data, 1, n, file); }
+        } fileWriteContainer = { file };
+
+        this->write(fileWriteContainer, data, size);
     }
 
 private:

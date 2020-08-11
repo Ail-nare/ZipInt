@@ -19,6 +19,12 @@ TEST(test_unsinged_default, int_edgy_cases)
     EXPECT_EQ("00000010", Zip::Test(2));
     EXPECT_EQ("01111111", Zip::Test(127));
     EXPECT_EQ("10000000:10000000", Zip::Test(128));
+
+    EXPECT_EQ("00000000", Zip::TestVoidptr(0));
+    EXPECT_EQ("00000001", Zip::TestVoidptr(1));
+    EXPECT_EQ("00000010", Zip::TestVoidptr(2));
+    EXPECT_EQ("01111111", Zip::TestVoidptr(127));
+    EXPECT_EQ("10000000:10000000", Zip::TestVoidptr(128));
 }
 
 TEST(test_unsinged_default, int_middel_test)
@@ -59,10 +65,12 @@ TEST(test_unsinged_default, BIG_test)
     EXPECT_EQ("11111111:10000010:00000000:00000000:00000000:00000000:00000000:00000000:00000000:00000100", Zip::Test(EndianNumber<uint64_t, 2> {2ul, 4ul}));
     EXPECT_EQ("11111111:11000000:11001000:00000000:00000000:00000000:00000000:00000000:00000000:00000000:00000100", Zip::Test(EndianNumber<uint64_t, 2> {200ul, 4ul}));
 
+    EXPECT_EQ("11111111:10000010:00000000:00000000:00000000:00000000:00000000:00000000:00000000:00000100", Zip::TestVoidptr(EndianNumber<uint64_t, 2> {2ul, 4ul}));
+
     EXPECT_EQ("ff:ff:c0:7f:ff:ff:ff:ff:ff:ff:ff:00:00:00:00:00:00:00:04", Zip::TestHex(EndianNumber<uint64_t, 2> {uint64_t(std::numeric_limits<int64_t>::max()), 4ul}));
     EXPECT_EQ("11111111:11111111:11000000:01111111:11111111:11111111:11111111:11111111:11111111:11111111:11111111:00000000:00000000:00000000:00000000:00000000:00000000:00000000:00000100",
-            Zip::Test(EndianNumber<uint64_t, 2> {uint64_t(std::numeric_limits<int64_t>::max()), 4ul}));
+        Zip::Test(EndianNumber<uint64_t, 2> {uint64_t(std::numeric_limits<int64_t>::max()), 4ul}));
     EXPECT_EQ("ff:ff:c0:ff:ff:ff:ff:ff:ff:ff:ff:00:00:00:00:00:00:00:04", Zip::TestHex(EndianNumber<uint64_t, 2> {std::numeric_limits<uint64_t>::max(), 4ul}));
     EXPECT_EQ("11111111:11111111:11000000:11111111:11111111:11111111:11111111:11111111:11111111:11111111:11111111:00000000:00000000:00000000:00000000:00000000:00000000:00000000:00000100",
-            Zip::Test(EndianNumber<uint64_t, 2> {std::numeric_limits<uint64_t>::max(), 4ul}));
+        Zip::Test(EndianNumber<uint64_t, 2> {std::numeric_limits<uint64_t>::max(), 4ul}));
 }

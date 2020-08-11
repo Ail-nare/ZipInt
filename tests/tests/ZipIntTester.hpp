@@ -78,6 +78,16 @@ public:
     }
 
     template <typename T>
+    static std::string TestVoidptr(const T &value)
+    {
+        MyStream stream;
+
+        ZipInt<_signed, _header_type, _dynamic_zip_int_type, _escape>::Get().write(stream, &value, sizeof(T));
+
+        return stream.str();
+    }
+
+    template <typename T>
     static std::string TestHex(const T &value)
     {
         MyStream stream;

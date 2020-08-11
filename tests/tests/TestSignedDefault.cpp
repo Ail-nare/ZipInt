@@ -10,8 +10,8 @@ using Zip = ZipIntTester<true>;
 
 TEST(test_singed_default, int_edgy_cases)
 {
-    EXPECT_EQ("11110100:00000000:00000000:00000000:00000000", Zip::Test(std::numeric_limits<int>::min()));
-    EXPECT_EQ("11110100:00000000:00000000:00000000:00000101", Zip::Test(std::numeric_limits<int>::min() + 5));
+    EXPECT_EQ("11110111:10000000:00000000:00000000:00000000", Zip::Test(std::numeric_limits<int>::min()));
+    EXPECT_EQ("11110111:10000000:00000000:00000000:00000101", Zip::Test(std::numeric_limits<int>::min() + 5));
 
     EXPECT_EQ("00000000", Zip::Test(0));
     EXPECT_EQ("00000001", Zip::Test(1));
@@ -22,6 +22,16 @@ TEST(test_singed_default, int_edgy_cases)
     EXPECT_EQ("10000000:01000000", Zip::Test(64));
     EXPECT_EQ("01000000", Zip::Test(-64));
     EXPECT_EQ("10111111:10111111", Zip::Test(-65));
+
+    EXPECT_EQ("00000000", Zip::TestVoidptr(0));
+    EXPECT_EQ("00000001", Zip::TestVoidptr(1));
+    EXPECT_EQ("01111111", Zip::TestVoidptr(-1));
+    EXPECT_EQ("00000010", Zip::TestVoidptr(2));
+    EXPECT_EQ("01111110", Zip::TestVoidptr(-2));
+    EXPECT_EQ("00111111", Zip::TestVoidptr(63));
+    EXPECT_EQ("10000000:01000000", Zip::TestVoidptr(64));
+    EXPECT_EQ("01000000", Zip::TestVoidptr(-64));
+    EXPECT_EQ("10111111:10111111", Zip::TestVoidptr(-65));
 }
 
 TEST(test_singed_default, int_middel_test)
@@ -35,8 +45,11 @@ TEST(test_singed_default, int_middel_test)
 
 TEST(test_singed_default, long_edgy_cases)
 {
-    EXPECT_EQ("11111111:10100000:00000000:00000000:00000000:00000000:00000000:00000000:00000000:00000000", Zip::Test(std::numeric_limits<int64_t>::min()));
-    EXPECT_EQ("11111111:10100000:00000000:00000000:00000000:00000000:00000000:00000000:00000000:00000101", Zip::Test(std::numeric_limits<int64_t>::min() + 5));
+    EXPECT_EQ("11111111:10111111:10000000:00000000:00000000:00000000:00000000:00000000:00000000:00000000", Zip::Test(std::numeric_limits<int64_t>::min()));
+    EXPECT_EQ("11111111:10111111:10100000:00000000:00000000:00000000:00000000:00000000:00000000:00000000", Zip::Test(std::numeric_limits<int64_t>::min() + int64_t(uint64_t(std::numeric_limits<int64_t>::min()) >> 2ul)));
+    EXPECT_EQ("11111111:10000000:01000000:00000000:00000000:00000000:00000000:00000000:00000000:00000000", Zip::Test(int64_t(uint64_t(std::numeric_limits<int64_t>::min()) >> 1ul)));
+    EXPECT_EQ("11111111:00100000:00000000:00000000:00000000:00000000:00000000:00000000:00000000", Zip::Test(int64_t(uint64_t(std::numeric_limits<int64_t>::min()) >> 2ul)));
+    EXPECT_EQ("11111111:10111111:10000000:00000000:00000000:00000000:00000000:00000000:00000000:00000101", Zip::Test(std::numeric_limits<int64_t>::min() + 5));
     EXPECT_EQ("11111111:01000000:00000000:00000000:00000000:00000000:00000000:00000000:00000000", Zip::Test(std::numeric_limits<int64_t>::min() / 2l));
     EXPECT_EQ("11111111:01100000:00000000:00000000:00000000:00000000:00000000:00000000:00000000", Zip::Test(std::numeric_limits<int64_t>::min() / 4l));
 
@@ -67,14 +80,19 @@ TEST(test_singed_default, long_edgy_cases)
 TEST(test_singed_default, long_middel_test)
 {
     EXPECT_EQ("11110000:10010000:01010100:10000010:11001001", Zip::Test(2421457609l));
-    EXPECT_EQ("11111111:10100000:00000000:00000000:00000000:00000000:10010000:01010100:10000010:11001001", Zip::Test(std::numeric_limits<int64_t>::min() + 2421457609l));
+    EXPECT_EQ("11111111:10111111:10000000:00000000:00000000:00000000:10010000:01010100:10000010:11001001", Zip::Test(std::numeric_limits<int64_t>::min() + 2421457609l));
     EXPECT_EQ("11110001:01100010:01010010:10000110:01000011", Zip::Test(5944542787l));
-    EXPECT_EQ("11111111:10100000:00000000:00000000:00000000:00000001:01100010:01010010:10000110:01000011", Zip::Test(std::numeric_limits<int64_t>::min() + 5944542787l));
+    EXPECT_EQ("11111111:10111111:10000000:00000000:00000000:00000001:01100010:01010010:10000110:01000011", Zip::Test(std::numeric_limits<int64_t>::min() + 5944542787l));
 }
 
 TEST(test_singed_default, BIG_test)
 {
     EXPECT_EQ("11111111:10000010:00000000:00000000:00000000:00000000:00000000:00000000:00000000:00000100", Zip::Test(EndianNumber<int64_t, 2> {2l, 4l}));
+
+    EXPECT_EQ("11111111:10111101:11111111:11111111:11111111:11111111:11111111:11111111:11111111:11111100", Zip::Test(EndianNumber<int64_t, 2> {-3l, -4l}));
+    EXPECT_EQ("11111111:10111011:11111111:11111111:11111111:11111111:11111111:11111111:11111111:11111100", Zip::Test(EndianNumber<int64_t, 2> {-5l, -4l}));
+    EXPECT_EQ("11111111:10111001:11111111:11111111:11111111:11111111:11111111:11111111:11111111:11111100", Zip::Test(EndianNumber<int64_t, 2> {-7l, -4l}));
+
     EXPECT_EQ("11111111:10111110:11111111:11111111:11111111:11111111:11111111:11111111:11111111:11111100", Zip::Test(EndianNumber<int64_t, 2> {-2l, -4l}));
     EXPECT_EQ("11111111:11000000:11001000:00000000:00000000:00000000:00000000:00000000:00000000:00000000:00000100", Zip::Test(EndianNumber<int64_t, 2> {200l, 4l}));
     EXPECT_EQ("11111111:11000000:00101000:00000000:00000000:00000000:00000000:00000000:00000000:00000000:00000100", Zip::Test(EndianNumber<int64_t, 2> {40l, 4l}));
@@ -83,6 +101,8 @@ TEST(test_singed_default, BIG_test)
     EXPECT_EQ("11111111:11011111:11011000:11111111:11111111:11111111:11111111:11111111:11111111:11111111:11111100", Zip::Test(EndianNumber<int64_t, 2> {-40l, -4l}));
     EXPECT_EQ("11111111:10101100:11111111:11111111:11111111:11111111:11111111:11111111:11111111:11111100", Zip::Test(EndianNumber<int64_t, 2> {-20l, -4l}));
 
+    EXPECT_EQ("11111111:10000010:00000000:00000000:00000000:00000000:00000000:00000000:00000000:00000100", Zip::TestVoidptr(EndianNumber<int64_t, 2> {2l, 4l}));
+
     EXPECT_EQ("ff:ff:c0:7f:ff:ff:ff:ff:ff:ff:ff:00:00:00:00:00:00:00:04", Zip::TestHex(EndianNumber<int64_t, 2> {std::numeric_limits<int64_t>::max(), 4l}));
-    EXPECT_EQ("ff:ff:d0:00:00:00:00:00:00:00:00:ff:ff:ff:ff:ff:ff:ff:fc", Zip::TestHex(EndianNumber<int64_t, 2> {std::numeric_limits<int64_t>::min(), -4l}));
+    EXPECT_EQ("ff:ff:df:80:00:00:00:00:00:00:00:ff:ff:ff:ff:ff:ff:ff:fc", Zip::TestHex(EndianNumber<int64_t, 2> {std::numeric_limits<int64_t>::min(), -4l}));
 }
