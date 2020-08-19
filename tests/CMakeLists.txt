@@ -18,10 +18,10 @@ ENDIF(UNIX)
 include_directories(../)
 include_directories(../lib/fl-lib/)
 
-add_subdirectory(lib/googletest-release-1.10.0)
+add_subdirectory(lib/googletest-release-v1.10.x)
 
 include_directories(
-    lib/googletest-release-1.10.0/googletest/include
+        lib/googletest-release-1.10.x/googletest/include
 )
 
 set(SOURCE_TEST

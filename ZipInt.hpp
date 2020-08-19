@@ -602,6 +602,13 @@ public:
         this->write(fileWriteContainer, data, size);
     }
 
+    template <typename _stream, typename _tp, typename std::enable_if<ZipHelper::detail::has_read_v<_stream>, int>::type=0>
+    std::conditional<_escape, ssize_t, size_t> readHead(_stream& stream)
+    {
+        // Todo
+        return 0;
+    }
+
 private:
     inline static ZipInt _singleton;
 public:
