@@ -1,6 +1,8 @@
 #ifndef ZIPINT_LIBRARY_HPP
 #define ZIPINT_LIBRARY_HPP
 
+#include "fl.hpp"
+
 #include <cstdint>
 #include <type_traits>
 #include <exception>
@@ -65,7 +67,7 @@ class ZipHelper {
     public:
         [[nodiscard]] bool get(size_t idx) const
         {
-            return (this->cbyte_begin()[idx / 8] << idx % 8) & 0x80;
+            return (this->operator[](idx / 8) << idx % 8) & 0x80;
         }
 
         [[maybe_unused]] [[nodiscard]] uint8_t &getByte(size_t idx) const
@@ -191,20 +193,6 @@ class ZipHelper {
 
         template <typename T> inline static constexpr bool has_read_v = has_read<T>::value;
 
-        template <typename T, typename = void>
-        struct [[maybe_unused]] is_iterable : std::false_type {};
-
-        template <typename T>
-        struct [[maybe_unused]] is_iterable<T,
-                std::void_t<
-                    decltype(std::begin(std::declval<T&>()) != std::end(std::declval<T&>())),
-                    decltype(++std::declval<decltype(std::begin(std::declval<T&>()))&>()),
-                    decltype(*std::begin(std::declval<T&>()))
-                >
-        > : std::true_type {};
-
-        template <typename T> inline static constexpr bool is_iterable_v = is_iterable<T>::value;
-
         template <typename T>
         [[nodiscard]] static decltype(auto) size(const T &container)
         {
@@ -271,6 +259,8 @@ class ZipHelper::ZipData<_signed, 0u, _dynamic_zip_int_type, _escape> : public Z
     static constexpr bool hasLimit = _escape;
     static constexpr SizeType<_ht> limit = hasLimit ? 8 : std::numeric_limits<SizeType<_ht>>::max();
 
+    //using ZipInt = ZipInt<_signed, _ht, _dynamic_zip_int_type, _escape>;
+
     // Data
     struct RefHeader {
         const uint8_t removeKey;
@@ -307,7 +297,7 @@ class ZipHelper::ZipData<_signed, 0u, _dynamic_zip_int_type, _escape> : public Z
 
         if constexpr (_signed) {
             *data &= ref.signedRemoveKey;
-            *data |= (isSigned) ? ref.signedAddKey : *data |= ref.addKey;
+            *data |= isSigned ? ref.signedAddKey : ref.addKey;
         } else {
             *data &= ref.removeKey;
             *data |= ref.addKey;
@@ -331,6 +321,16 @@ public:
         }
     };
 
+    template <typename _stream, typename std::enable_if<ZipHelper::detail::has_read_v<_stream>, int>::type=0>
+    explicit ZipData(_stream &stream, char *adr_head)
+        : ZipDataDefault()
+    {
+        char head;
+
+        stream.read(&head, 1);
+
+    }
+
     friend ZipInt<_signed, _ht, _dynamic_zip_int_type, _escape>;
 };
 
@@ -349,22 +349,25 @@ class ZipInt {
     union  {
         uint8_t head;           // 1B
         char c_head{};          // 1B
-        char ard_head[0];       // 0B
+        char adr_head[0];       // 0B
     };                              // 1B
     SignedType isSigned;            // 1B   -> should round up to 4B
     SizeType dataSize;              // 4B or 8B, if sizeof(SizeType) is 4B than round up to 8B else round up to 16B
 
 
 // Member
+public:
     template <typename _stream, typename _tp>
-    void _zip(_stream &stream, const _tp &data)
+    static void _zip(_stream &stream, const _tp &data)
     {
+        // Todo Make a heap allocation if sizeof(_tp) is too big (maybe over 65535 bytes)
         ZipHelper::bits<sizeof(_tp) * 8> enData;
+        SignedType isSigned = false;
 
         ZipHelper::endianSwap(data, enData);
 
         if constexpr (_signed) {
-            this->isSigned = enData.get(0);
+            isSigned = enData.get(0);
         }
 
         if constexpr (_escape && std::is_same_v<Escape, _tp>) {
@@ -375,7 +378,7 @@ class ZipInt {
 
         // Find the number of useless bits
         SizeType nbOfUsedBits = sizeof(_tp) * 8;
-        for (uint32_t i = 0; (enData.get(i) == this->isSigned) && (i < ((sizeof(_tp) * 8) - 1)); ++i)
+        for (uint32_t i = 0; (enData.get(i) == isSigned) && (i < ((sizeof(_tp) * 8) - 1)); ++i)
             --nbOfUsedBits;
 
         // Create a zipData, witch will compute the size of the data
@@ -389,23 +392,14 @@ class ZipInt {
             }
         }
 
-        /*
-        // Remove the signed bit of the data
-        if constexpr (_signed) {
-            if (this->isSigned)
-                enData.set(0, false);
-        }
-        */
-
         // Create a buffer to store the new data
         uint8_t buffer[zipData.size];
         uint32_t sizeToCopy;
 
-
         if (zipData.size > sizeof(_tp)) {
             // Pre fill the head to avoid unitialised value problem
             if constexpr (_signed) {
-                buffer[zipData.size - sizeof(_tp) - 1] = this->isSigned ? 0b11111111 : 0b00000000;
+                buffer[zipData.size - sizeof(_tp) - 1] = isSigned ? 0b11111111 : 0b00000000;
             } else {
                 buffer[zipData.size - sizeof(_tp) - 1] = 0b00000000;
             }
@@ -423,27 +417,29 @@ class ZipInt {
         std::copy_n(rItData, sizeToCopy, rItBuffer);
 
         // Add the header
-        zipData.setHeader(buffer, this->isSigned);
+        zipData.setHeader(buffer, isSigned);
 
         // Write the binary into the stream
         stream.write(buffer, zipData.size);
     }
 
     template <typename _stream>
-    void _zip(_stream &stream, const void *data, ptrdiff_t size)
+    static void _zip(_stream &stream, const void *data, ptrdiff_t size)
     {
+        // Todo Make a heap allocation if size is too big (maybe over 65535 bytes)
         uint8_t defaultBuffer[size];
         ZipHelper::bitsPtr enData {defaultBuffer, size};
+        SignedType isSigned = false;
 
         ZipHelper::endianSwap(data, enData, size);
 
         if constexpr (_signed) {
-            this->isSigned = enData.get(0);
+            isSigned = enData.get(0);
         }
 
         // Find the number of useless bits
         SizeType nbOfUsedBits = size * 8;
-        for (uint32_t i = 0; (enData.get(i) == this->isSigned) && (i < ((size * 8) - 1)); ++i)
+        for (uint32_t i = 0; (enData.get(i) == isSigned) && (i < ((size * 8) - 1)); ++i)
             --nbOfUsedBits;
 
         // Create a zipData, witch will compute the size of the data
@@ -457,23 +453,14 @@ class ZipInt {
             }
         }
 
-        /*
-        // Remove the signed bit of the data
-        if constexpr (_signed) {
-            if (this->isSigned)
-                enData.set(0, false);
-        }
-        */
-
         // Create a buffer to store the new data
         uint8_t buffer[zipData.size];
         uint32_t sizeToCopy;
 
-
         if (zipData.size > size) {
             // Pre fill the head to avoid uninitialised value problem
             if constexpr (_signed) {
-                buffer[zipData.size - size - 1] = this->isSigned ? 0b11111111 : 0b00000000;
+                buffer[zipData.size - size - 1] = isSigned ? 0b11111111 : 0b00000000;
             } else {
                 buffer[zipData.size - size - 1] = 0b00000000;
             }
@@ -491,14 +478,15 @@ class ZipInt {
         std::copy_n(rItData, sizeToCopy, rItBuffer);
 
         // Add the header
-        zipData.setHeader(buffer, this->isSigned);
+        zipData.setHeader(buffer, isSigned);
 
         // Write the binary into the stream
         stream.write(buffer, zipData.size);
     }
 
-    template <typename _stream, bool _container>
-    void _typeIt(_stream &stream)
+private:
+    template <typename _stream, size_t _container_depth>
+    static void _typeIt(_stream &stream)
     {
          {
             static_assert(_compression_method <= 31,
@@ -508,37 +496,40 @@ class ZipInt {
 
             constexpr const uint8_t flag = (uint8_t(_signed) << uint8_t(7)) +
                                    (uint8_t(_escape) << uint8_t(6)) +
-                                   (uint8_t(_container) << uint8_t(5)) +
+                                   (uint8_t(_container_depth != 0) << uint8_t(5)) +
                                    (uint8_t(_compression_method));
 
             stream.write(&flag, 1);
+            if constexpr (_container_depth) {
+                ::ZipInt<false, 0ul, false, false>::_zip(stream, _container_depth);
+            }
         }
     }
 
-    template <typename _stream, typename _tp, typename std::enable_if<ZipHelper::detail::is_iterable_v<_tp>, int>::type=0>
+    template <typename _stream, typename _tp, typename std::enable_if<fl::is::iterable_v<_tp>, int>::type=0>
     void _write(_stream &stream, const _tp &data)
     {
         // The data is a container
 
         if constexpr (_dynamic_zip_int_type) {
-            this->template _typeIt<_stream, true>(stream);
+            this->template _typeIt<fl::is::iterable<_tp>::Attribute::depth>(stream);
         }
 
         // Use the default compression type.
-        ::ZipInt<false, 0ul, false, false>::Get().write(stream, ZipHelper::detail::size(data));
+        ::ZipInt<false, 0ul, false, false>::_zip(stream, ZipHelper::detail::size(data));
 
         for (const auto &obj : data)
-            this->_zip(stream, obj);
+            ZipInt::_zip(stream, obj);
     }
 
-    template <typename _stream, typename _tp, typename std::enable_if<!ZipHelper::detail::is_iterable_v<_tp>, int>::type=0>
+    template <typename _stream, typename _tp, typename std::enable_if<!fl::is::iterable_v<_tp>, int>::type=0>
     void _write(_stream &stream, const _tp &data)
     {
         if constexpr (_dynamic_zip_int_type) {
-            this->template _typeIt<_stream, false>(stream);
+            this->template _typeIt<fl::is::iterable<_tp>::Attribute::depth>(stream);
         }
 
-        this->_zip(stream, data);
+        ZipInt::_zip(stream, data);
     }
 
     template <typename _stream>
@@ -548,7 +539,7 @@ class ZipInt {
             this->template _typeIt<_stream, false>(stream);
         }
 
-        this->_zip(stream, data, size);
+        ZipInt::_zip(stream, data, size);
     }
 
 
@@ -618,6 +609,8 @@ public:
     {
         return ZipInt::_singleton;
     }
+
+    friend ZipData;
 };
 
 #endif //ZIPINT_LIBRARY_HPP

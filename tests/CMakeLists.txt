@@ -16,6 +16,7 @@ if(UNIX)
 ENDIF(UNIX)
 
 include_directories(../)
+include_directories(../lib/fl-lib/)
 
 add_subdirectory(lib/googletest-release-1.10.0)
 
