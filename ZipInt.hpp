@@ -69,10 +69,10 @@ public:
     }
 
     template <typename _tp>
-    static constexpr bool isEscape(const _tp &value)
+    static constexpr bool isEscape(const _tp &eValue)
     {
         //Won't be a constexpr in most cases
-        return value == Escape::value;
+        return eValue == Escape::value;
     }
 
     constexpr Escape()=default;
@@ -114,12 +114,22 @@ class ZipHelper {
             return *this;
         }
 
-        [[maybe_unused]] [[nodiscard]] const uint8_t *cbyte_begin() const
+        [[maybe_unused]] [[nodiscard]] inline uint8_t *byte_begin()
         {
             return this->begin();
         }
 
-        [[maybe_unused]] [[nodiscard]] const uint8_t *cbyte_end() const
+        [[maybe_unused]] [[nodiscard]] inline uint8_t *byte_end()
+        {
+            return this->begin() + _nb_bytes;
+        }
+
+        [[maybe_unused]] [[nodiscard]] inline const uint8_t *cbyte_begin() const
+        {
+            return this->begin();
+        }
+
+        [[maybe_unused]] [[nodiscard]] inline const uint8_t *cbyte_end() const
         {
             return this->begin() + _nb_bytes;
         }
@@ -128,12 +138,11 @@ class ZipHelper {
     class bitsPtr {
 
         uint8_t *ptr;
-        ptrdiff_t size;
 
     public:
 
-        bitsPtr(uint8_t *ptr, ptrdiff_t size)
-            : ptr(ptr), size(size)
+        explicit bitsPtr(uint8_t *ptr)
+            : ptr(ptr)
         {}
 
         [[nodiscard]] bool get(size_t idx) const
@@ -157,17 +166,22 @@ class ZipHelper {
             return *this;
         }
 
-        [[maybe_unused]] [[nodiscard]] uint8_t *byte_begin()
+        [[maybe_unused]] [[nodiscard]] inline uint8_t *byte_begin()
         {
             return this->ptr;
         }
 
-        [[maybe_unused]] [[nodiscard]] const uint8_t *cbyte_begin() const
+        [[maybe_unused]] [[nodiscard]] inline uint8_t *byte_end(ptrdiff_t size)
+        {
+            return this->ptr + size;
+        }
+
+        [[maybe_unused]] [[nodiscard]] inline const uint8_t *cbyte_begin() const
         {
             return this->ptr;
         }
 
-        [[maybe_unused]] [[nodiscard]] const uint8_t *cbyte_end() const
+        [[maybe_unused]] [[nodiscard]] inline const uint8_t *cbyte_end(ptrdiff_t size) const
         {
             return this->ptr + size;
         }
@@ -185,20 +199,8 @@ class ZipHelper {
         template <typename T>
         static auto find_size(const T &container, long)
         {
-            return std::count_if(container.begin(), container.end(), [] (const auto &) { return true; });
+            return std::count(container.begin(), container.end());
         }
-        /*
-        template <auto _fn, template <typename ...> typename _tupleA, typename ..._typename,
-             template <typename ...> typename _tupleB, typename ..._args>
-        static constexpr auto fn_declfn(_tupleA<_typename...>, _tupleB<_args...>)
-            -> decltype(fn<_typename...>(std::declval<_args>()...))
-        {
-            return {};
-        }
-
-        template <auto _fn, typename _typename_tuple, typename _args_tuple>
-        using declfn = decltype(fn_declfn<>());
-         */ // C++ 20
 
     public:
         template <typename T, typename = void>
@@ -216,7 +218,7 @@ class ZipHelper {
 
         template <typename T>
         struct [[maybe_unused]] has_read<T,
-                std::void_t<std::invoke_result_t<decltype(&T::read), T,  char *, ptrdiff_t>>
+                std::void_t<std::invoke_result_t<decltype(&T::read), T,  char *, int>>
         > : std::true_type {};
 
         template <typename T> inline static constexpr bool has_read_v = has_read<T>::value;
@@ -245,6 +247,16 @@ class ZipHelper {
         ZipData()=delete;
     };
 
+    enum DataType {
+        UNumber = 'u', // A unsigned number
+        Number = 'n', // A signed number
+        Vector = 'V', // A number that define how many object comes next (needs value type)
+        String = 's', // An Escape terminated array
+        Map = 'M' // A that define how many object comes next (needs the key type and value type)
+    };
+    // ex: `n` a number, `Vu` a list of unsigned number, `Vs` a list of string
+    // ex: `Mns` a map of (number, string), `MsVn` a map of (string, vector of number)
+
     template <typename _tp>
     static void endianSwap(const _tp &data, ZipHelper::bits<sizeof(_tp) * 8> &out)
     {
@@ -257,7 +269,26 @@ class ZipHelper {
         }
     }
 
-    static void endianSwap(const void *data, ZipHelper::bitsPtr &out, ptrdiff_t size)
+    template <typename _tp>
+    static void inline endianSwap(const ZipHelper::bits<sizeof(_tp) * 8> &ref, _tp &data)
+    {
+        const char *it = ref.cbyte_begin();
+
+        if (LittleBigEndian::endianness == LittleBigEndian::BIG) {
+            std::copy(it, it + sizeof(_tp), reinterpret_cast<char *>(&data));
+        } else {
+            std::reverse_copy(it, it + sizeof(_tp), reinterpret_cast<char *>(&data));
+        }
+    }
+
+    template <typename _tp>
+    static inline void endianSwap(_tp &data)
+    {
+        if (LittleBigEndian::endianness == LittleBigEndian::LITTLE)
+            std::reverse(reinterpret_cast<uint8_t *>(&data), reinterpret_cast<uint8_t *>(&data + 1));
+    }
+
+    static void inline endianSwap(const void *data, ZipHelper::bitsPtr &out, ptrdiff_t size)
     {
         const char *it = static_cast<const char *>(data);
 
@@ -281,11 +312,14 @@ public:
 template <bool _signed, bool _dynamic_zip_int_type, bool _escape>
 class ZipHelper::ZipData<_signed, 0u, _dynamic_zip_int_type, _escape> : public ZipDataDefault<0u> {
 
+    using SizeType = ZipHelper::SizeType<0u>; // since _compression_method = 0, SizeType = uint32_t
+    using SignedType = std::conditional_t<not _signed, const bool, bool>;
+
     // Attribute
     static constexpr uint16_t _ht = 0u;
 
     static constexpr bool hasLimit = _escape;
-    static constexpr SizeType<_ht> limit = hasLimit ? 8 : std::numeric_limits<SizeType<_ht>>::max();
+    static constexpr SizeType limit = hasLimit ? 8 : std::numeric_limits<SizeType>::max();
 
     //using ZipInt = ZipInt<_signed, _ht, _dynamic_zip_int_type, _escape>;
 
@@ -314,9 +348,18 @@ class ZipHelper::ZipData<_signed, 0u, _dynamic_zip_int_type, _escape> : public Z
     };
 
     // Member
+    inline void preFillHeader(uint8_t *data, size_t size, bool isSigned)
+    { // This function shouldn't be called if that data is escaped
+        if constexpr (_signed) {
+            data[this->size - size - 1] = isSigned ? 0b11111111 : 0b00000000;
+        } else {
+            data[this->size - size - 1] = 0b00000000;
+        }
+    }
+
     void setHeader(uint8_t *data, bool isSigned) const
     { // This function shouldn't be called if that data is escaped
-        SizeType<_ht> idx;
+        SizeType idx;
 
         for (idx = this->size; idx >= 8; idx -= 8, ++data)
             *data = 0b11111111;
@@ -333,7 +376,6 @@ class ZipHelper::ZipData<_signed, 0u, _dynamic_zip_int_type, _escape> : public Z
         }
     }
 
-public:
     explicit ZipData(const uint32_t nbOfUsedBits)
         : ZipDataDefault()
     {
@@ -350,13 +392,131 @@ public:
     };
 
     template <typename _stream, typename std::enable_if<ZipHelper::detail::has_read_v<_stream>, int>::type=0>
-    explicit ZipData(_stream &stream, char *adr_head)
-        : ZipDataDefault()
+    static inline void readHeader(_stream &stream, uint8_t &headHolder, std::conditional_t<_escape, size_t, ssize_t> &size)
     {
-        char head;
+        char it = 0;
 
-        stream.read(&head, 1);
+        size = -1;
 
+        if constexpr (_escape) {
+            ssize_t head = stream.read(&it, 1);
+
+            if (it == -1) {
+                // It's an escape character
+                return;
+            }
+
+            if (head != 1) {
+                // TODO Throw
+            }
+        } else {
+            for (ssize_t head = stream.read(&it, 1); it == -1; head = stream.read(&it, 1)) {
+                if (head != 1) {
+                    // TODO Throw
+                }
+                size += 8 - 1; // + 7 because each cell of 0b11111111 adds 8 but
+            }
+        }
+
+        ZipHelper::bitsPtr itBitsPtr {reinterpret_cast<uint8_t*>(&it)};
+        SizeType nbOfUsedBits;
+
+        // Find the number header bits left
+        for (nbOfUsedBits = 0; itBitsPtr.get(nbOfUsedBits) && nbOfUsedBits < 7; ++nbOfUsedBits);
+        if (nbOfUsedBits == 7) {
+            ssize_t head = stream.read(itBitsPtr.byte_begin(), 1);
+            if (head != 1) {
+                // TODO Throw
+            }
+            size += 8 - 1; // 7 because we add 8, but we read one, so 7
+            nbOfUsedBits = 0;
+        } else {
+            ++nbOfUsedBits;
+            size += nbOfUsedBits;
+        }
+
+        if constexpr (_signed) {
+            if (itBitsPtr.get(nbOfUsedBits)) {
+                // negative signed number
+                const auto &ref = ZipData::refHeader[nbOfUsedBits + 1];
+
+                it |= ref.addKey;
+                headHolder = it;
+                return;
+            }
+        }
+
+        // positive number, singed or not
+        // Remove the header with zeros `0`
+        const auto &ref = ZipData::refHeader[nbOfUsedBits];
+
+        it &= ref.removeKey;
+
+        headHolder = it;
+    }
+
+    template <uint8_t value, typename _istream>
+    static void _reduceBody(_istream &istream, uint8_t &headHolder, size_t &size)
+    {
+        for (ssize_t head = 1; size > 0 && headHolder == value; head = istream.read(reinterpret_cast<char *>(&headHolder), 1)) {
+            if (head != 1) {
+                // TODO Throw
+            }
+            --size;
+        }
+    }
+
+    template <typename _istream, typename _tp, typename std::enable_if<ZipHelper::detail::has_read_v<_istream>, int>::type=0>
+    static _tp readBody(_istream &istream, uint8_t headHolder, size_t size)
+    {
+        _tp value;
+        SignedType isSigned = false;
+
+        if constexpr (_signed) { // Maybe unnecessary
+            if (headHolder & 0b10000000) {
+                isSigned = true;
+
+                ZipData::_reduceBody<0xff, _istream>(istream, headHolder, size);
+            } else {
+                ZipData::_reduceBody<0x00, _istream>(istream, headHolder, size);
+            }
+        } else {
+            ZipData::_reduceBody<0x00, _istream>(istream, headHolder, size);
+        }
+
+        if (size > sizeof(_tp) - 1) {
+            // TODO Throw
+        }
+
+        // Create a buffer to store the  data
+        uint8_t buffer[size];
+
+        ssize_t head = istream.read(reinterpret_cast<char *>(buffer), size);
+        if (head != 1) {
+            // TODO Throw
+        }
+
+        // Create reverse iterator in order to copy the data from the right
+        std::reverse_iterator<uint8_t *> rItData(reinterpret_cast<uint8_t *>(&value + 1));
+        std::reverse_iterator<const uint8_t *> rItBuffer(static_cast<const uint8_t *>(buffer) + size);
+
+        rItData[ptrdiff_t(size)] = headHolder;
+        // Copy the data
+        std::copy_n(rItBuffer, size, rItData);
+
+        // Fill any missing data
+        std::fill_n(rItData + ptrdiff_t(size) + 1, sizeof(_tp) - 1 - size, isSigned ? 0xff : 0x00);
+
+        // Swap endianness if needed
+        ZipHelper::endianSwap(value);
+
+        return value;
+    }
+
+    template <typename _stream, typename std::enable_if<ZipHelper::detail::has_read_v<_stream>, int>::type=0>
+    static inline void readBody(_stream &istream, uint8_t *out, uint8_t headHolder, size_t size)
+    {
+        // TODO
     }
 
     friend ZipInt<_signed, _ht, _dynamic_zip_int_type, _escape>;
@@ -365,7 +525,7 @@ public:
 template <bool _signed, uint16_t _compression_method, bool _dynamic_zip_int_type, bool _escape>
 class ZipInt {
     static_assert(_compression_method <= 0, "ZipInt _compression_method can't be higher that 0");
-    // Warning for the future if more _compression_method were to be add, it can't be higher than 31!!
+    // Warning for the future if more _compression_method were to be added, it can't be higher than 31!!
 
     using ZipData = ZipHelper::ZipData<_signed, _compression_method, _dynamic_zip_int_type, _escape>;
 
@@ -425,12 +585,8 @@ public:
         uint32_t sizeToCopy;
 
         if (zipData.size > sizeof(_tp)) {
-            // Pre fill the head to avoid unitialised value problem
-            if constexpr (_signed) {
-                buffer[zipData.size - sizeof(_tp) - 1] = isSigned ? 0b11111111 : 0b00000000;
-            } else {
-                buffer[zipData.size - sizeof(_tp) - 1] = 0b00000000;
-            }
+            // Pre-fill the head to avoid uninitialised value problem
+            zipData.preFillHeader(buffer, sizeof(_tp), isSigned); // TODO force inline
 
             sizeToCopy = sizeof(_tp);
         } else {
@@ -438,7 +594,7 @@ public:
         }
 
         // Create reverse iterator in order to copy the data from the right
-        std::reverse_iterator<const uint8_t *> rItData(static_cast<const uint8_t *>(enData.cbyte_end()));
+        std::reverse_iterator<const uint8_t *> rItData(enData.cbyte_end());
         std::reverse_iterator<uint8_t *> rItBuffer(static_cast<uint8_t *>(buffer) + zipData.size);
 
         // Copy the data
@@ -452,11 +608,11 @@ public:
     }
 
     template <typename _stream>
-    static void _zip(_stream &stream, const void *data, ptrdiff_t size)
+    static void _zip(_stream &stream, const void *data, const ptrdiff_t size)
     {
         // Todo Make a heap allocation if size is too big (maybe over 65535 bytes)
         uint8_t defaultBuffer[size];
-        ZipHelper::bitsPtr enData {defaultBuffer, size};
+        ZipHelper::bitsPtr enData {defaultBuffer};
         SignedType isSigned = false;
 
         ZipHelper::endianSwap(data, enData, size);
@@ -486,12 +642,8 @@ public:
         uint32_t sizeToCopy;
 
         if (zipData.size > size) {
-            // Pre fill the head to avoid uninitialised value problem
-            if constexpr (_signed) {
-                buffer[zipData.size - size - 1] = isSigned ? 0b11111111 : 0b00000000;
-            } else {
-                buffer[zipData.size - size - 1] = 0b00000000;
-            }
+            // Pre-fill the head to avoid uninitialised value problem
+            zipData.preFillHeader(buffer, size, isSigned); // TODO force inline
 
             sizeToCopy = size;
         } else {
@@ -499,7 +651,7 @@ public:
         }
 
         // Create reverse iterator in order to copy the data from the right
-        std::reverse_iterator<const uint8_t *> rItData(static_cast<const uint8_t *>(enData.cbyte_end()));
+        std::reverse_iterator<const uint8_t *> rItData(enData.cbyte_end(size));
         std::reverse_iterator<uint8_t *> rItBuffer(static_cast<uint8_t *>(buffer) + zipData.size);
 
         // Copy the data
@@ -630,11 +782,22 @@ public:
         this->write(fileWriteContainer, data, size);
     }
 
-    template <typename _stream, typename _tp, typename std::enable_if<ZipHelper::detail::has_read_v<_stream>, int>::type=0>
-    std::conditional<_escape, ssize_t, size_t> readHead(_stream& stream)
+    template <typename _istream, typename _return_type>//, typename std::enable_if<ZipHelper::detail::has_read_v<_istream>, int>::type=0>
+    inline auto readOnce(_istream& istream)
     {
-        // Todo
-        return 0;
+        uint8_t headHolder;
+        std::conditional_t<_escape, size_t, ssize_t> size;
+
+        ZipData::readHeader(istream, headHolder, size);
+
+        if constexpr (_escape) {
+            if (size == -1) {
+                return std::optional<_return_type>{-1};
+            }
+            return std::optional<_return_type>{ZipData::template readBody<_istream, _return_type>(istream, headHolder, (size_t) size)};
+        } else {
+            return _return_type(ZipData::template readBody<_istream, _return_type>(istream, headHolder, (size_t) size));
+        }
     }
 
 private:
