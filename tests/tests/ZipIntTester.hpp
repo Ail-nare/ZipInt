@@ -8,11 +8,13 @@
 #include "ZipInt.hpp"
 #include <string>
 #include <vector>
+#include <deque>
+#include <array>
 #include <sstream>
 #include <iomanip>
 
 class MyStream {
-    std::vector<uint8_t> _data;
+    std::deque<uint8_t> _data;
 
     static std::string to_hex(uint8_t i)
     {
@@ -61,6 +63,101 @@ public:
 
         this->_data.insert(this->_data.end(), udata, udata + size);
     }
+
+    ssize_t read(void *data, int size)
+    {
+        auto *udata = static_cast<uint8_t *>(data);
+
+        std::copy(this->_data.cbegin(), this->_data.cbegin() + size, udata);
+        this->_data.erase(this->_data.cbegin() + size - 1);
+        return size;
+    }
+};
+
+template <size_t _array_size>
+class MyStreamLowResources {
+    std::array<uint8_t, _array_size> _data;
+    ptrdiff_t start = 0;
+    ptrdiff_t last = 0;
+
+    static std::string to_hex(uint8_t i)
+    {
+        std::stringstream stream;
+        stream << std::setfill ('0') << std::setw(2) << std::hex << uint32_t(i);
+        return stream.str();
+    }
+
+public:
+    MyStreamLowResources()=default;
+
+    [[nodiscard]] std::string str() const
+    {
+        size_t size = this->size();
+        std::string result((size * 9) - 1, '0');
+
+        for (size_t i = 0, j = 0; i < (size * 8); ++i) {
+            if (i && !(i % 8)) {
+                result[i + j] = ':';
+                ++j;
+            }
+            auto ptr = this->begin();
+
+            if (uint8_t(ptr[i / 8] << (i % 8u)) & 0x80u)
+                result[i + j] = '1';
+        }
+        return result;
+    }
+
+    [[nodiscard]] std::string hex() const
+    {
+        std::stringstream stream;
+        bool first = true;
+
+        for (const auto &nb : *this) {
+            if (!first)
+                stream << ':';
+            else
+                first = false;
+            stream << MyStreamLowResources::to_hex(nb);
+        }
+        return stream.str();
+    }
+
+    inline void reset() {
+        this->start = 0;
+        this->last = 0;
+    }
+
+    [[nodiscard]] inline size_t size() const {
+        return this->last - this->last;
+    }
+
+    void write(const void *data, int size)
+    {
+        const auto *udata = static_cast<const uint8_t *>(data);
+
+        std::copy_n(udata, size, this->begin());
+        this->last += size;
+    }
+
+    ssize_t read(void *data, int size)
+    {
+        auto *udata = static_cast<uint8_t *>(data);
+
+        std::copy(this->cbegin(), this->cbegin() + size, udata);
+        this->start += size;
+        return size;
+    }
+
+    typedef uint8_t* iterator;
+    typedef const uint8_t* const_iterator;
+
+    [[nodiscard]] inline iterator begin() { return &this->_data[this->start]; }
+    [[nodiscard]] inline const_iterator begin() const { return &this->_data[this->start]; }
+    [[nodiscard]] inline const_iterator cbegin() const { return &this->_data[this->start]; }
+    [[nodiscard]] inline iterator end() { return &this->_data[this->last + 1]; }
+    [[nodiscard]] inline const_iterator end() const { return &this->_data[this->last + 1];  }
+    [[nodiscard]] inline const_iterator cend() const { return &this->_data[this->last + 1];  }
 };
 
 template<bool _signed=false, std::uint16_t _header_type=0, bool _dynamic_zip_int_type=false, bool _escape=false>
